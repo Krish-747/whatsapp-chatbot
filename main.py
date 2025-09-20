@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # LangChain imports
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -22,7 +22,7 @@ app = FastAPI()
 whatsapp_number = config("TO_NUMBER")  # recipient number (e.g., user's WhatsApp E.164)
 
 # Build a simple LangChain pipeline: prompt -> LLM -> string
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5)  # choose any supported chat model
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.5)  # choose any supported chat model
 prompt = ChatPromptTemplate.from_messages([
     ("system", "You are a helpful WhatsApp assistant. Keep answers concise."),
     ("human", "{user_input}")
