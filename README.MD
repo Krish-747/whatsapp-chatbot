@@ -7,3 +7,8 @@ This whatsapp chatbot is built using FastAPI, Twilio API, Langchain and Gemini A
 - Stores chat history in a PostgreSQL database.
 - Built with FastAPI for handling requests.
 - Memory function to retain context of previous conversations.
+
+## Demo
+[Image 1](/Image-1.png)
+[Image 2](/Image-2.png)
+[Video Demo](/Demo.mp4)
