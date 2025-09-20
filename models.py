@@ -8,8 +8,8 @@ url = URL.create(
     drivername="postgresql",
     username=config("DB_USER"),
     password=config("DB_PASSWORD"),
-    host="localhost",
-    database="History",
+    host=config("DB_HOST"),
+    database="history_gbqn",
     port=5432
 )
 
