@@ -2,6 +2,6 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
-@app.get("/")
+@app.post("/")
 async def index():
     return {"msg": "ew"}
