@@ -1,15 +1,15 @@
 # main.py
 
 # Standard/third-party imports
-from fastapi import FastAPI, Form, Depends, Response  # FastAPI core
+from fastapi import FastAPI, Form, Depends
 from decouple import config
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # LangChain imports
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationChain
 
 # Internal imports
 from models import Conversation, SessionLocal
@@ -18,16 +18,20 @@ from utils import send_message, logger
 app = FastAPI()
 
 # Env vars
-# OPENAI_API_KEY is read automatically by langchain-openai via environment, so no direct openai.api_key assignment required.
-whatsapp_number = config("TO_NUMBER")  # recipient number (e.g., user's WhatsApp E.164)
+whatsapp_number = config("TO_NUMBER")
 
-# Build a simple LangChain pipeline: prompt -> LLM -> string
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.5)  # choose any supported chat model
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful WhatsApp assistant. Keep answers concise."),
-    ("human", "{user_input}")
-])
-chain = prompt | llm | StrOutputParser()
+# LLM
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.5)
+
+# Memory (in-RAM, not persisted)
+memory = ConversationBufferMemory(return_messages=True)
+
+# Conversation chain
+chain = ConversationChain(
+    llm=llm,
+    memory=memory,
+    verbose=True
+)
 
 # DB session dependency
 def get_db():
@@ -37,13 +41,38 @@ def get_db():
     finally:
         db.close()
 
-# Webhook: Twilio posts application/x-www-form-urlencoded fields like Body, From, To
+# --- Helper: Rebuild memory from DB ---
+def load_memory_from_db(db: Session, limit: int = 10):
+    """Load last `limit` conversation turns into memory after restart."""
+    history = (
+        db.query(Conversation)
+        .order_by(Conversation.id.desc())
+        .limit(limit)
+        .all()
+    )
+    for conv in reversed(history):  # oldest → newest
+        memory.chat_memory.add_user_message(conv.message)
+        memory.chat_memory.add_ai_message(conv.response)
+
+
+@app.on_event("startup")
+def restore_memory():
+    """Rehydrate LangChain memory from DB on app startup."""
+    db = SessionLocal()
+    try:
+        load_memory_from_db(db, limit=10)
+        logger.info("ConversationBufferMemory restored from DB")
+    finally:
+        db.close()
+
+
+# --- Webhook ---
 @app.post("/message")
 async def reply(Body: str = Form(""), db: Session = Depends(get_db)):
-    # 1) Generate response with LangChain (async-friendly)
-    chat_response = await chain.ainvoke({"user_input": Body})
+    # 1) Generate response with memory-enabled chain
+    chat_response = await chain.apredict(input=Body)
 
-    # 2) Store the conversation
+    # 2) Store conversation in DB
     try:
         conversation = Conversation(
             sender=whatsapp_number,
@@ -52,11 +81,11 @@ async def reply(Body: str = Form(""), db: Session = Depends(get_db)):
         )
         db.add(conversation)
         db.commit()
-        logger.info(f"Conversation #{conversation.id} stored in database")
+        logger.info(f"Conversation #{conversation.id} stored")
     except SQLAlchemyError as e:
         db.rollback()
-        logger.error(f"Error storing conversation in database: {e}")
+        logger.error(f"Error storing conversation in DB: {e}")
 
-    # 3) Reply via Twilio REST (out-of-band)
+    # 3) Reply via Twilio
     send_message(whatsapp_number, chat_response)
     return ""
